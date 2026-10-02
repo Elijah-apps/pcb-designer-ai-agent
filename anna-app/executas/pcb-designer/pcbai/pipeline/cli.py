@@ -14,7 +14,6 @@ from pcbai.steps.footprint_generator import (
     SmdRcParams, SoicParams, write_kicad_mod_smd_rc, write_kicad_mod_soic,
 )
 from pcbai.steps.footprint_qfn_qfp import QfnParams, QfpParams, generate_qfn, generate_qfp, KiCadModuleWriter
-from pcbai.steps.datasheet_package_extractor import extract_package_params_from_pdf
 
 logger = get_logger()
 
@@ -42,8 +41,12 @@ def design(description: str, outdir: str):
     click.echo(f"[pcbai] ✅ Design complete!")
     click.echo(f"  BOM        : {len(result['bom'])} components")
     click.echo(f"  Schematic  : {result['sch']}")
-    click.echo(f"  PCB        : {result['pcb']}")
-    click.echo(f"  Gerbers    : {result['gerbers']}")
+    if result.get("pcb_error"):
+        click.echo(f"  PCB        : ⚠ {result['pcb']}")
+        click.echo(f"  ⚠ PCB: {result['pcb_error']}")
+    else:
+        click.echo(f"  PCB        : {result['pcb']}")
+        click.echo(f"  Gerbers    : {result['gerbers']}")
     click.echo(f"  ZIP        : {result['zip']}")
 
 

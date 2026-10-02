@@ -11,7 +11,7 @@ class Settings:
     log_level: str = os.getenv("PCB_AI_LOG", "INFO")
 
     # LLM
-    llm_provider: str = os.getenv("PCB_AI_LLM_PROVIDER", "openai")
+    llm_provider: str = os.getenv("PCB_AI_LLM_PROVIDER", "poolside")
     openai_api_key: Optional[str] = os.getenv("OPENAI_API_KEY")
     ollama_host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 

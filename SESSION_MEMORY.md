@@ -1,52 +1,95 @@
 # PCB Designer AI Agent - Session Memory
 
-**Date:** October 1, 2026
-**Project Status:** v1.1.0 — Anna review fixes complete, ready for resubmission
+**Date:** October 2, 2026
+**Project Status:** v1.2.0 — Poolside LLM provider, graceful pcbnew handling, webapp fixes
 
-## Summary of Today's Fixes (in response to Anna review)
+## Summary of Fixes
 
-Anna's rejection reasons and what we fixed:
+### Anna Review Fixes (v1.1.0 — already complete, preserved)
+1. **Fixed hardcoded board** — `design_compiler.py` rewritten to be prompt-driven
+2. **Fixed BOM/footprint mismatch** — `_footprint_str()` derives footprint from BOM package field
+3. **About section honesty** — Local Agent only, KiCad 8 required, no LPKF claims
+4. **Silent pcbnew failure** — pre-flight check + clear error message
 
-### 1. ❌ Fixed output (hardcoded ESP32-C3 board regardless of prompt)
-- **Root cause:** `design_compiler.py` contained a 20-line hardcoded BOM, completely ignoring the user's prompt.
-- **Fix:** Complete rewrite of `design_compiler.py`. It now calls `parse_requirements(prompt)` (LLM via Anna sampling or local fallback) → `generate_bom(requirements)` → builds the schematic and PCB dynamically from that BOM. Every prompt produces a different BOM, schematic, and board.
+### New Work (v1.2.0)
 
-### 2. ❌ Fixed BOM/footprint mismatch (BOM said ESP32-C3-MINI-1, footprint was WROOM-02)
-- **Root cause:** The old `kicad_pcb_writer.py` was hardcoded to one fixed board regardless of input.
-- **Fix:** New `design_compiler.py` derives footprint strings from the BOM package field via a consistent `_footprint_str()` mapping table. The BOM entry and the PCB footprint always match.
+#### Poolside LLM Provider
+- Added `PoolsideProvider` class in `pcbai/llm/provider.py` — uses OpenRouter API with poolside models (`poolside/laguna-s-2.1:free`, `poolside/laguna-2-7b`)
+- Set as default provider (`PCB_AI_LLM_PROVIDER` defaults to `"poolside"`) in both `provider.py` and `config.py`
+- LMStudio still available via `PCB_AI_LLM_PROVIDER=lmstudio`
+- Cleaned up verbose `print("DEBUG: ...")` statements in `GeminiProvider`
 
-### 3. ❌ About section overpromised (mentioned dynamic search, cloud routing, LPKF)
-- **Fix:** Rewrote `app.json`, `executa.json`, and `plugin.py` MANIFEST to be honest:
-  - Clearly states **Local Agent only**, KiCad 8 required
-  - Lists setup steps (install KiCad 8, run on Local Agent)
-  - Explains what changes with different inputs
-  - **Zero LPKF references** anywhere (per user request)
+#### Graceful pcbnew Handling (no more crashes)
+- `compile_design()` now returns **partial results** (BOM + schematic + placeholder PCB) when pcbnew is unavailable — includes `pcb_error` field
+- CLI `design` command shows friendly ⚠ message instead of traceback
+- Plugin `_tool_full_pipeline` passes `pcb_error` back to webapp, returns `success: True` with `pipeline_steps_completed: 3` (instead of crashing)
 
-### 4. ❌ Silent failure when pcbnew missing (returned fixed board instead of error)
-- **Fix:** `_tool_route_pcb()` now has a pre-flight `import pcbnew` check and returns a clear JSON error if KiCad is not installed.
-- `design_compiler.py` raises a `RuntimeError` with a helpful message when pcbnew is unavailable.
+#### Local BOM Catalog (no LLM required)
+- `_LOCAL_CATALOG` with 22 keyword→component entries (ESP32, STM32, USB-C, LDO, BME280, SSD1306, MCP73831, etc.)
+- `_add_supporting_components()` — auto adds decoupling caps, pull-ups, CC resistors
+- `_LOCAL_PACKAGES` table — parametric footprint data for all common packages
+- `requirements_parser.py` keyword fallback (keyword matching when LLM unavailable)
 
-## Version
-- `executa.json` and plugin MANIFEST: **v1.1.0**
+#### Passive Component Handling
+- `_ref_prefix(pkg, category)` — 0805 capacitor → `C`, 0805 resistor → `R`, LED → `D`
+- `_footprint_str(pkg, category)` — disambiguates SMD passives and LEDs by category
+
+#### Protocol Integrity
+- No `print()` to stdout — all debug output via `log()` (stderr)
+- `_REAL_STDOUT` saved reference ensures JSON-RPC messages always reach the transport
+- `contextlib.redirect_stdout(sys.stderr)` wraps tool execution in `handle()`
+
+#### Webapp Fixes (`anna-app/bundle/app.js`)
+- Fixed `result.bom.bom.forEach()` → `result.bom.forEach()` (BOM is a flat array, not nested)
+- Added SOT-23-5 pad generation support to both PCB and footprint generators
+
+### Version
+- `executa.json` and plugin MANIFEST: **v1.2.0**
 
 ## Files Changed
-- `anna-app/app.json` — honest description, Local Agent requirement, setup steps
-- `anna-app/executas/pcb-designer/executa.json` — v1.1.0, Local Agent declared, no LPKF
-- `anna-app/executas/pcb-designer/plugin.py` — version bump, LPKF removed, route_pcb pre-flight check
-- `anna-app/executas/pcb-designer/pcbai/steps/design_compiler.py` — **full rewrite**, now prompt-driven
+- `anna-app/executas/pcb-designer/plugin.py` — stdout redirect, _REAL_STDOUT, graceful pipeline
+- `anna-app/executas/pcb-designer/pcbai/llm/provider.py` — PoolsideProvider, default change, debug cleanup
+- `anna-app/executas/pcb-designer/pcbai/steps/design_compiler.py` — graceful pcbnew, local packages, ref prefix
+- `anna-app/executas/pcb-designer/pcbai/steps/bom_generator.py` — local catalog, supporting components
+- `anna-app/executas/pcb-designer/pcbai/core/config.py` — default provider → poolside
+- `anna-app/executas/pcb-designer/pcbai/pipeline/cli.py` — duplicate import removed, graceful pcbnew
+- `anna-app/executas/pcb-designer/pcbai/steps/datasheet_package_extractor.py` — duplicate/unused imports removed
+- `anna-app/executas/pcb-designer/test_harness.py` — graceful pcbnew handling in smoke tests
+- `anna-app/bundle/app.js` — fixed BOM structure access, added SOT-23-5 pads
+- New files: `pcbai/core/__init__.py`, `pcbai/llm/__init__.py`, `pcbai/pipeline/__init__.py`, `pcbai/steps/__init__.py`, `tests/test_bom_generator_local.py`
 
-## 🚀 Next Steps for Resubmission
+## How to Run
 
-1. **Run the full pipeline locally** with two different prompts to produce demo screenshots/ZIP files.
-   ```bash
-   cd anna-app/executas/pcb-designer
-   uv run python3 -c "
-   from pcbai.steps.design_compiler import compile_design
-   import tempfile, os
-   with tempfile.TemporaryDirectory() as d:
-       r = compile_design('ESP32 WiFi board with USB-C and LDO', d)
-       print('BOM:', [c['mpn'] for c in r['bom']])
-   "
-   ```
-2. **Resubmit to Anna** stating: Local Agent only, KiCad 8 required, output changes with prompt.
-3. Provide Anna's testers with the two test prompts and expected different outputs as proof.
+### Unit tests
+```bash
+cd anna-app/executas/pcb-designer
+PYTHONPATH=. pytest tests/ -v
+```
+
+### Smoke tests (plugin JSON-RPC)
+```bash
+PYTHONPATH=. python3 test_harness.py --smoke
+```
+
+### CLI — BOM only
+```bash
+PYTHONPATH=. python3 -m pcbai.pipeline.cli bom "ESP32 board with USB-C and LDO" --out build
+```
+
+### CLI — Full pipeline (BOM + schematic + placeholder PCB)
+```bash
+PYTHONPATH=. python3 -m pcbai.pipeline.cli design "ESP32 WiFi board" --out build
+```
+
+### CLI — Generate a footprint
+```bash
+PYTHONPATH=. python3 -m pcbai.pipeline.cli footprint --type qfn --name QFN-32-5x5 \
+  --pins 32 --pitch 0.5 --body-l 5.0 --body-w 5.0 --pad-l 0.8 --pad-w 0.3 --out build
+```
+
+### With LLM (poolside/Ollama/etc.)
+```bash
+export PCB_AI_LLM_PROVIDER=poolside   # or lmstudio, openai, ollama, openrouter, anthropic, gemini
+export OPENROUTER_API_KEY=your-key    # for poolside via OpenRouter
+PYTHONPATH=. python3 -m pcbai.pipeline.cli design "STM32 sensor board" --out build
+```

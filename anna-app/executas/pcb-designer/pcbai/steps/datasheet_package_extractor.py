@@ -4,6 +4,7 @@ import json
 import re
 from dataclasses import dataclass, asdict
 from typing import Dict, Optional, Any
+from pcbai.llm.provider import get_provider
 
 try:
     from pdfminer.high_level import extract_text
@@ -80,12 +81,6 @@ def _find_first_int(pattern: str, text: str) -> Optional[int]:
     except Exception:
         return None
 
-
-import os
-import base64
-import requests
-import json
-from pcbai.llm.provider import get_provider
 
 def extract_with_llm(text: str) -> Optional[PackageGuess]:
     """Use the configured LLM to extract package parameters from datasheet text."""

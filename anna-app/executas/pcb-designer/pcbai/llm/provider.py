@@ -169,8 +169,69 @@ class OpenRouterFallbackProvider(LLMProvider):
 
 
 # ─────────────────────────────────────────────
-# Anthropic (Claude)
+# Poolside (via OpenRouter — free open-source models)
 # ─────────────────────────────────────────────
+class PoolsideProvider(LLMProvider):
+    """Poolside / Laguna models accessed through the OpenRouter API.
+
+    Poolside models (e.g. ``poolside/laguna-s-2.1``) are free, open-source, and
+    available on OpenRouter, so this provider works with an ``OPENROUTER_API_KEY``
+    — no separate Poolside account required.
+    """
+    DEFAULT_MODELS = [
+        "poolside/laguna-s-2.1:free",
+        "poolside/laguna-2-7b",
+    ]
+
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None,
+                 base_url: str = "https://openrouter.ai/api/v1"):
+        self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self._models = self.DEFAULT_MODELS
+
+    def _chat(self, model_id: str, messages: List[Dict],
+              temperature: float, max_tokens: int) -> str | None:
+        """Try a single model; return content or ``None`` on failure."""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "HTTP-Referer": "https://github.com/assalas/pcb-designer-ai-agent",
+            "X-Title": "PCB Designer AI Agent",
+        }
+        try:
+            r = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json={
+                    "model": model_id,
+                    "messages": messages,
+                    "temperature": _get_temperature(temperature),
+                    "max_tokens": _get_max_tokens(max_tokens),
+                },
+                timeout=30,
+            )
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"].get("content", "").strip()
+        except Exception:
+            pass
+        return None
+
+    def chat(self, messages: List[Dict], temperature: float = 0.2, max_tokens: int = 512, **kwargs) -> str:
+        if not self.api_key:
+            raise RuntimeError("OPENROUTER_API_KEY not set — poolside models run via OpenRouter")
+        # If a specific model is configured, try only that one.
+        models_to_try = [self.model] if self.model else self._models
+        for model_id in models_to_try:
+            content = self._chat(model_id, messages, temperature, max_tokens)
+            if content:
+                return content
+        raise RuntimeError("Poolside provider: all models failed or rate-limited")
+
+    def complete(self, prompt: str, **kwargs) -> str:
+        return self.chat([{"role": "user", "content": prompt}], **kwargs)
+
+
+
 class AnthropicProvider(LLMProvider):
     def __init__(self, api_key: Optional[str] = None, model: str = "claude-3-5-sonnet-20240620"):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
@@ -233,9 +294,7 @@ class GeminiProvider(LLMProvider):
             }
         }
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
-        print(f"DEBUG: Requesting {url.split('key=')[0]} with payload size {len(str(payload))}")
         r = requests.post(url, json=payload, timeout=60)
-        print(f"DEBUG: Response status {r.status_code}")
         try:
             r.raise_for_status()
         except Exception as e:
@@ -261,7 +320,7 @@ class DummyProvider(LLMProvider):
 # ─────────────────────────────────────────────
 def get_provider() -> LLMProvider:
     """Return the configured LLM provider based on PCB_AI_LLM_PROVIDER env var."""
-    name = os.getenv("PCB_AI_LLM_PROVIDER", "lmstudio").lower()
+    name = os.getenv("PCB_AI_LLM_PROVIDER", "poolside").lower()
     
     if name == "lmstudio":
         return LMStudioProvider(
@@ -280,6 +339,11 @@ def get_provider() -> LLMProvider:
         )
     elif name == "openrouter":
         return OpenRouterFallbackProvider()
+    elif name == "poolside":
+        return PoolsideProvider(
+            model=os.getenv("PCB_AI_MODEL"),
+            base_url=os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1"),
+        )
     elif name == "anthropic" or name == "claude":
         return AnthropicProvider(model=os.getenv("PCB_AI_MODEL", "claude-3-5-sonnet-20240620"))
     elif name == "gemini":

@@ -104,6 +104,13 @@ async function main() {
                 pads += `    (pad "S2" thru_hole oval (at 4.3 0) (size 1.2 2) (drill oval 0.6 1.4) (layers *.Cu *.Mask))\n`;
                 pads += `    (pad "S3" thru_hole oval (at -4.3 -4) (size 1.2 2) (drill oval 0.6 1.4) (layers *.Cu *.Mask))\n`;
                 pads += `    (pad "S4" thru_hole oval (at 4.3 -4) (size 1.2 2) (drill oval 0.6 1.4) (layers *.Cu *.Mask))\n`;
+            } else if (pkg.includes("SOT-23-5")) {
+                // 5 pins, 0.65mm pitch
+                pads += `    (pad "1" smd rect (at -1.5 0.975) (size 0.6 0.5) (layers "F.Cu" "F.Paste" "F.Mask"))\n`;
+                pads += `    (pad "2" smd rect (at -1.5 0.325) (size 0.6 0.5) (layers "F.Cu" "F.Paste" "F.Mask"))\n`;
+                pads += `    (pad "3" smd rect (at -1.5 -0.325) (size 0.6 0.5) (layers "F.Cu" "F.Paste" "F.Mask"))\n`;
+                pads += `    (pad "4" smd rect (at -1.5 -0.975) (size 0.6 0.5) (layers "F.Cu" "F.Paste" "F.Mask"))\n`;
+                pads += `    (pad "5" smd rect (at 1.5 -0.65) (size 0.6 0.5) (layers "F.Cu" "F.Paste" "F.Mask"))\n`;
             } else if (pkg.includes("SMD") && pkg.toLowerCase().includes("sd")) { // MicroSD
                 // 8 pads for SD card interface
                 for(let i=0; i<8; i++) {
@@ -152,8 +159,8 @@ async function main() {
       });
 
       // Render footprints into the zip based on BOM
-      if (result.bom && result.bom.bom) {
-        result.bom.bom.forEach(comp => {
+      if (result.bom && Array.isArray(result.bom)) {
+        result.bom.forEach(comp => {
           if (comp.mpn && comp.mpn !== "UNKNOWN") {
             const f = `footprints/${comp.mpn}.kicad_mod`;
             
@@ -201,6 +208,13 @@ async function main() {
                 content += `  (pad "S2" thru_hole oval (at 4.3 0) (size 1.2 2) (drill oval 0.6 1.4) (layers *.Cu *.Mask))\n`;
                 content += `  (pad "S3" thru_hole oval (at -4.3 -4) (size 1.2 2) (drill oval 0.6 1.4) (layers *.Cu *.Mask))\n`;
                 content += `  (pad "S4" thru_hole oval (at 4.3 -4) (size 1.2 2) (drill oval 0.6 1.4) (layers *.Cu *.Mask))\n`;
+            } else if (pkg.includes("SOT-23-5")) {
+                // 5 pins, 0.65mm pitch, 3 on one side, 2 on the other
+                content += `  (pad "1" smd rect (at -1.5 0.975) (size 0.6 0.5) (layers "F.Cu" "F.Paste" "F.Mask"))\n`;
+                content += `  (pad "2" smd rect (at -1.5 0.325) (size 0.6 0.5) (layers "F.Cu" "F.Paste" "F.Mask"))\n`;
+                content += `  (pad "3" smd rect (at -1.5 -0.325) (size 0.6 0.5) (layers "F.Cu" "F.Paste" "F.Mask"))\n`;
+                content += `  (pad "4" smd rect (at -1.5 -0.975) (size 0.6 0.5) (layers "F.Cu" "F.Paste" "F.Mask"))\n`;
+                content += `  (pad "5" smd rect (at 1.5 -0.65) (size 0.6 0.5) (layers "F.Cu" "F.Paste" "F.Mask"))\n`;
             } else if (pkg.includes("SMD") && pkg.toLowerCase().includes("sd")) { 
                 for(let i=0; i<8; i++) {
                     content += `  (pad "${i+1}" smd rect (at ${-3.85 + i*1.1} 5) (size 0.7 1.5) (layers "F.Cu" "F.Paste" "F.Mask"))\n`;

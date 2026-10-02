@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PCB Designer AI Agent</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">📐</div>
+      <h1>PCB Designer AI Agent</h1>
+      <p class="subtitle">Natural language → PCB design</p>
+    </header>
+
+    <!-- System Status -->
+    <section class="card" id="status-section">
+      <h2>System Status</h2>
+      <div class="status-grid">
+        <div class="status-item">
+          <span class="label">pcbnew (KiCad 8):</span>
+          <span class="badge" id="pcbnew-badge">Checking…</span>
+        </div>
+        <div class="status-item">
+          <span class="label">LLM Provider:</span>
+          <span class="badge" id="provider-badge">Checking…</span>
+        </div>
+        <div class="status-item">
+          <span class="label">Pipeline:</span>
+          <span class="badge idle" id="pipeline-badge">Idle</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- New Design -->
+    <section class="card">
+      <h2>New Design Request</h2>
+      <div class="input-group">
+        <label for="prompt-input">Hardware Description</label>
+        <textarea id="prompt-input" rows="3"
+                  placeholder="e.g. Design a board with an STM32F103 MCU, a USB-C connector, and a 12V buck converter to 3.3V."></textarea>
+      </div>
+
+      <div class="input-row">
+        <div class="input-group small">
+          <label for="provider-select">LLM Provider</label>
+          <select id="provider-select">
+            <option value="">Auto (default: poolside)</option>
+            <option value="poolside">Poolside (OpenRouter)</option>
+            <option value="lmstudio">LM Studio (local)</option>
+            <option value="openai">OpenAI</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="gemini">Gemini</option>
+            <option value="ollama">Ollama (local)</option>
+          </select>
+        </div>
+        <button id="run-btn" class="primary-btn">▶ Generate PCB</button>
+      </div>
+    </section>
+
+    <!-- Progress / Output Log -->
+    <section class="card" id="progress-section" style="display:none;">
+      <h2>Build Progress</h2>
+      <div class="progress-log" id="progress-log"></div>
+      <div class="progress-bar-container">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section class="card" id="results-section" style="display:none;">
+      <h2>Results</h2>
+
+      <!-- BOM Table -->
+      <div id="bom-container">
+        <h3>Bill of Materials (<span id="bom-count">0</span> components)</h3>
+        <table class="bom-table">
+          <thead>
+            <tr>
+              <th>Ref</th>
+              <th>Category</th>
+              <th>MPN</th>
+              <th>Package</th>
+              <th>Footprint</th>
+            </tr>
+          </thead>
+          <tbody id="bom-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- File Downloads -->
+      <div id="download-section" class="download-section">
+        <h3>Download</h3>
+        <div class="file-links" id="file-links"></div>
+      </div>
+
+      <!-- Analysis Report -->
+      <div id="report-section" class="report-section" style="display:none;">
+        <h3>Engineering Analysis</h3>
+        <div class="report-content" id="report-content"></div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+      <p>PCB Designer AI Agent v1.2.0 — Local Agent with KiCad 8 · Runs entirely on your machine</p>
+    </footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

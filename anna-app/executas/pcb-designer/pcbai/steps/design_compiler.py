@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import zipfile
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from pcbai.steps.requirements_parser import parse_requirements
 from pcbai.steps.bom_generator import generate_bom
@@ -299,77 +300,102 @@ def _build_pcb_from_bom(bom: List[Dict], output_path: str, prompt: str) -> bool:
         return fp
 
     def _make_parametric_footprint(ref: str, mpn: str, pkg: str) -> "pcbnew.FOOTPRINT":
-        """Use LLM to fetch datasheet parameters and build footprint parametrically!"""
-        from pcbai.llm.provider import get_provider
-        import json
-        import re
-        
-        prompt = f"I need physical package parameters for MPN '{mpn}' in package '{pkg}'. Return ONLY a JSON object with: 'pitch' (mm), 'body_w' (mm), 'body_l' (mm), 'pins' (int), 'pad_w' (mm), 'pad_l' (mm). Guess standard values if exact datasheet isn't memorized."
-        provider = get_provider()
-        try:
-            raw = provider.chat([{"role": "user", "content": prompt}], temperature=0.1)
-            
-            # Robust JSON object extraction
-            match = re.search(r'\{.*\}', raw, re.DOTALL)
-            if match:
-                raw = match.group(0)
-            else:
-                raw = raw.strip()
-                if "```" in raw: raw = raw.split("```")[1]
-                if raw.startswith("json"): raw = raw[4:]
-                
-            params = json.loads(raw.strip())
-        except Exception as e:
-            print(f"[parametric_fp] LLM failed for {mpn}, falling back to placeholder. {e}")
-            return _make_placeholder(ref, mpn)
-            
-        pitch = float(params.get("pitch", 0.5))
-        body_w = float(params.get("body_w", 5.0))
-        pins = int(params.get("pins", 8))
-        pad_w = float(params.get("pad_w", 0.3))
-        pad_l = float(params.get("pad_l", 1.0))
-        
+        """Generate a parametric SMD footprint from local package data.
+
+        Falls back through: local _LOCAL_PACKAGES table → LLM query → placeholder.
+        Never raises — always returns a valid footprint.
+        """
+        pitch = 0.5
+        body_w = 5.0
+        body_l = 7.0
+        pins = 8
+        pad_w = 0.3
+        pad_l = 1.0
+        ep_l: Optional[float] = None
+        ep_w: Optional[float] = None
+
+        if pkg in _LOCAL_PACKAGES:
+            pins, pitch, body_l, body_w, pad_l, pad_w, ep_l, ep_w = _LOCAL_PACKAGES[pkg]
+            print(f"[parametric_fp] Local package data for {pkg}: {pins} pins, pitch {pitch}mm")
+        else:
+            # Try LLM for unknown packages
+            try:
+                from pcbai.llm.provider import get_provider
+                provider = get_provider()
+                llm_prompt = (
+                    f"Physical package parameters for MPN '{mpn}' in package '{pkg}'. "
+                    f"Return ONLY a JSON object with: pitch (mm), body_w (mm), body_l (mm), "
+                    f"pins (int), pad_w (mm), pad_l (mm). Guess standard values."
+                )
+                raw = provider.chat([{"role": "user", "content": llm_prompt}], temperature=0.1)
+                match = re.search(r'\{.*\}', raw, re.DOTALL)
+                if match:
+                    params = json.loads(match.group(0))
+                    pitch = float(params.get("pitch", 0.5))
+                    body_w = float(params.get("body_w", 5.0))
+                    body_l = float(params.get("body_l", 7.0))
+                    pins = int(params.get("pins", 8))
+                    pad_w = float(params.get("pad_w", 0.3))
+                    pad_l = float(params.get("pad_l", 1.0))
+                    print(f"[parametric_fp] LLM-generated package data for {pkg}: {pins} pins")
+            except Exception as e:
+                print(f"[parametric_fp] No local data for {pkg}, LLM failed ({e}). Using defaults.")
+
         fp = pcbnew.FOOTPRINT(board)
         fp.SetFPID(pcbnew.LIB_ID("pcbai", f"{pkg}_{pins}"))
-        
+
         lset = pcbnew.LSET()
         lset.addLayer(pcbnew.F_Cu)
         lset.addLayer(pcbnew.F_Paste)
         lset.addLayer(pcbnew.F_Mask)
-        
+
         pins_per_side = max(1, pins // 2)
         start_y = -((pins_per_side - 1) * pitch) / 2
-        
+
         for i in range(pins):
             pad = pcbnew.PAD(fp)
             pad.SetShape(pcbnew.PAD_SHAPE_RECT)
             pad.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
             pad.SetLayerSet(lset)
             pad.SetSize(pcbnew.VECTOR2I(mm(pad_l), mm(pad_w)))
-            
+
             side = 0 if i < pins_per_side else 1
             idx = i if side == 0 else (pins - 1 - i)
-            
-            x = -body_w/2 if side == 0 else body_w/2
-            y = start_y + idx * pitch
-            
-            pad.SetPosition(pcbnew.VECTOR2I(mm(x), mm(y)))
+
+            x_pos = -body_w/2 if side == 0 else body_w/2
+            y_pos = start_y + idx * pitch
+
+            pad.SetPosition(pcbnew.VECTOR2I(mm(x_pos), mm(y_pos)))
             pad.SetNumber(str(i + 1))
             fp.Add(pad)
-            
-        print(f"[parametric_fp] AI Generated {pkg} footprint for {mpn} with {pins} pins!")
+
+        # Exposed pad for QFN packages with EP
+        if ep_l is not None and ep_w is not None and ep_l > 0 and ep_w > 0:
+            ep_pad = pcbnew.PAD(fp)
+            ep_pad.SetShape(pcbnew.PAD_SHAPE_RECT)
+            ep_pad.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
+            ep_pad.SetLayerSet(lset)
+            ep_pad.SetSize(pcbnew.VECTOR2I(mm(ep_l), mm(ep_w)))
+            ep_pad.SetPosition(pcbnew.VECTOR2I(0, 0))
+            ep_pad.SetNumber("EP")
+            fp.Add(ep_pad)
+
+        print(f"[parametric_fp] Generated {pkg} footprint for {mpn} with {pins} pins!")
         return fp
 
-    # Map our BOM package strings to KiCad footprint libraries
+    # Map our BOM package strings to (KiCad library, footprint_name) for loading
     FOOTPRINT_MAP = {
-        "Module":   ("RF_Module",          "ESP32-WROOM-32"),
-        "LQFP-48":  ("Package_QFP",        "LQFP-48_7x7mm_P0.5mm"),
-        "SOIC-8":   ("Package_SO",         "SOIC-8_3.9x4.9mm_P1.27mm"),
-        "SOT-223":  ("Package_TO_SOT_SMD", "SOT-223-3_TabPin2"),
-        "USB-C-SMD":("Connector_USB",      "USB_C_Receptacle_Molex_2011640100"),
-        "SMD":      ("Capacitor_SMD",      "C_0805_2012Metric"),
-        "0805":     ("Capacitor_SMD",      "C_0805_2012Metric"),
-        "0402":     ("Resistor_SMD",       "R_0402_1005Metric"),
+        "Module":    ("RF_Module",          "ESP32-WROOM-32"),
+        "LQFP-48":   ("Package_QFP",        "LQFP-48_7x7mm_P0.5mm"),
+        "SOIC-8":    ("Package_SO",         "SOIC-8_3.9x4.9mm_P1.27mm"),
+        "SOIC-14":   ("Package_SO",         "SOIC-14_8.7x3.9mm_P1.27mm"),
+        "SOT-23-5":  ("Package_TO_SOT_SMD", "SOT-23-5_SC-70-5"),
+        "SOT-223":   ("Package_TO_SOT_SMD", "SOT-223-3_TabPin2"),
+        "LGA-8":     ("Package_LGA",        "Bosch_LGA-8_2.5x2.5mm_P0.65mm_ClockwisePinNumbering"),
+        "USB-C-SMD": ("Connector_USB",      "USB_C_Receptacle_Molex_2011640100"),
+        "SMD":       ("Capacitor_SMD",      "C_0805_2012Metric"),
+        "0805":      ("Capacitor_SMD",      "C_0805_2012Metric"),
+        "0402":      ("Resistor_SMD",       "R_0402_1005Metric"),
     }
 
     for idx, comp in enumerate(bom):
@@ -438,7 +464,9 @@ def compile_design(prompt: str, output_dir: str) -> dict:
     Full pipeline: prompt → BOM → schematic + PCB → Gerbers → ZIP.
 
     Returns a dict with keys: bom, sch, pcb, gerbers, zip.
-    Raises RuntimeError with a clear message if pcbnew is not available.
+    When pcbnew is not available, PCB will be a placeholder file and
+    ``pcb_error`` is set with a helpful message — BOM and schematic are
+    still generated and returned.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -455,13 +483,14 @@ def compile_design(prompt: str, output_dir: str) -> dict:
     ref_counters: Dict[str, int] = {}
     for entry in raw_bom:
         pkg = entry.get("package", "0805")
-        # Assign ref designator prefix by package class
-        prefix = _ref_prefix(pkg)
+        cat = entry.get("category", "")
+        # Assign ref designator prefix by category + package class
+        prefix = _ref_prefix(pkg, cat)
         ref_counters[prefix] = ref_counters.get(prefix, 0) + 1
         ref = f"{prefix}{ref_counters[prefix]}"
         enriched = dict(entry)
         enriched["ref"] = ref
-        enriched["footprint"] = _footprint_str(pkg)
+        enriched["footprint"] = _footprint_str(pkg, cat)
         enriched.setdefault("description", enriched.get("mpn", ""))
         bom.append(enriched)
 
@@ -478,30 +507,36 @@ def compile_design(prompt: str, output_dir: str) -> dict:
     pcb_path = os.path.join(output_dir, "board.kicad_pcb")
     pcb_ok = _build_pcb_from_bom(bom, pcb_path, prompt)
 
+    pcb_error = None
     if not pcb_ok:
-        raise RuntimeError(
+        pcb_error = (
             "pcbnew (KiCad 8 Python API) is not installed on this system. "
             "This app requires a Local Agent with KiCad 8. "
-            "Please install KiCad 8 from https://www.kicad.org/download/ and re-run."
+            "Please install KiCad 8 from https://www.kicad.org/download/ and re-run. "
+            "BOM and schematic were still generated successfully."
         )
+        print(f"[design_compiler] {pcb_error}")
 
     # ── Step 5: Project file ──────────────────────────────────────────────────
     pro_path = os.path.join(output_dir, "project.kicad_pro")
     with open(pro_path, "w") as f:
         f.write('{"board": {"design_settings": {}}}')
 
-    # ── Step 6: Gerber export ─────────────────────────────────────────────────
+    # ── Step 6: Gerber export (only if PCB was fully generated) ───────────────
     gerbers_dir = os.path.join(output_dir, "gerbers")
-    os.makedirs(gerbers_dir, exist_ok=True)
-    try:
-        subprocess.run(
-            ["kicad-cli", "pcb", "export", "gerbers",
-             "--output", gerbers_dir, pcb_path],
-            check=True, capture_output=True, timeout=60,
-        )
-        print(f"[design_compiler] Gerbers exported → {gerbers_dir}")
-    except Exception as e:
-        print(f"[design_compiler] Gerber export skipped: {e}")
+    gerber_ok = False
+    if pcb_ok:
+        os.makedirs(gerbers_dir, exist_ok=True)
+        try:
+            subprocess.run(
+                ["kicad-cli", "pcb", "export", "gerbers",
+                 "--output", gerbers_dir, pcb_path],
+                check=True, capture_output=True, timeout=60,
+            )
+            print(f"[design_compiler] Gerbers exported → {gerbers_dir}")
+            gerber_ok = True
+        except Exception as e:
+            print(f"[design_compiler] Gerber export skipped: {e}")
 
     # ── Step 7: ZIP ───────────────────────────────────────────────────────────
     zip_path = os.path.join(output_dir, "pcb_project.zip")
@@ -509,11 +544,12 @@ def compile_design(prompt: str, output_dir: str) -> dict:
         for fpath in [bom_path, sch_path, pcb_path, pro_path]:
             if os.path.exists(fpath):
                 zf.write(fpath, os.path.basename(fpath))
-        for root, _, files in os.walk(gerbers_dir):
-            for fname in files:
-                abs_path = os.path.join(root, fname)
-                rel_path = os.path.relpath(abs_path, output_dir)
-                zf.write(abs_path, rel_path)
+        if gerber_ok:
+            for root, _, files in os.walk(gerbers_dir):
+                for fname in files:
+                    abs_path = os.path.join(root, fname)
+                    rel_path = os.path.relpath(abs_path, output_dir)
+                    zf.write(abs_path, rel_path)
     print(f"[design_compiler] ZIP → {zip_path}")
 
     return {
@@ -522,37 +558,115 @@ def compile_design(prompt: str, output_dir: str) -> dict:
         "pcb": pcb_path,
         "gerbers": gerbers_dir,
         "zip": zip_path,
+        "pcb_error": pcb_error,
     }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _ref_prefix(pkg: str) -> str:
+# Standard package lookup for parametric footprint generation (no LLM needed).
+# Maps package name → (pins, pitch_mm, body_l_mm, body_w_mm, pad_l_mm, pad_w_mm, ep_l, ep_w)
+_LOCAL_PACKAGES: Dict[str, tuple] = {
+    "Module":        (38, 1.27, 18.0, 13.0, 1.0, 0.6, None, None),
+    "QFN-48":        (48, 0.5,  6.0, 6.0, 0.6, 0.25, 3.5, 3.5),
+    "QFN-32":        (32, 0.5,  5.0, 5.0, 0.6, 0.25, 2.8, 2.8),
+    "LQFP-48":       (48, 0.5,  7.0, 7.0, 1.2, 0.30, None, None),
+    "SOIC-8":        (8,  1.27, 4.9, 3.9, 1.04, 0.65, None, None),
+    "SOIC-14":       (14, 1.27, 8.7, 3.9, 1.04, 0.65, None, None),
+    "SOIC-20":       (20, 1.27, 12.6, 5.3, 1.04, 0.65, None, None),
+    "SOT-23-5":      (5,  0.65, 2.3, 2.1, 0.8, 0.45, None, None),
+    "SOT-223":       (3,  2.3,  6.7, 3.7, 1.2, 0.9, None, None),
+    "LGA-8":         (8,  0.65, 2.5, 2.5, 0.5, 0.35, None, None),
+    "LGA-14":        (14, 0.8,  3.0, 3.0, 0.5, 0.35, None, None),
+    "LGA-16":        (16, 0.5,  3.0, 3.0, 0.4, 0.25, None, None),
+    "DIP-28":        (28, 2.54, 39.4, 14.0, 1.0, 0.6, None, None),
+    "TO-92":         (3,  2.54, 4.6, 3.5, 1.0, 0.8, None, None),
+    "USB-C-SMD":     (24, 0.5,  8.0, 2.5, 0.3, 1.5, None, None),
+    "SD_Card":       (8,  1.0,  10.0, 12.0, 0.8, 0.8, None, None),
+    "Relay_Housing": (4,  2.54, 10.0, 5.0, 1.0, 1.0, None, None),
+    "0805":          (2,  1.0,  2.0, 1.0, 1.2, 0.6, None, None),
+    "0402":          (2,  1.0,  1.0, 0.5, 0.8, 0.4, None, None),
+}
+
+
+def _ref_prefix(pkg: str, category: str = "") -> str:
+    """Return the KiCad reference-designator prefix for a component."""
     pkg_lower = pkg.lower()
-    if any(k in pkg_lower for k in ["module", "lqfp", "qfn", "lga", "soc"]):
+    cat = category.lower()
+    if cat == "mcu":
         return "U"
-    elif "soic" in pkg_lower:
+    if cat == "ic":
         return "U"
-    elif "sot" in pkg_lower:
-        return "U"
-    elif "usb" in pkg_lower:
+    if cat == "connector":
         return "J"
-    elif "led" in pkg_lower:
+    if cat == "led":
         return "D"
-    else:
+    if cat == "relay":
+        return "K"
+    if cat == "display":
+        return "LCD"
+    if cat == "sensor":
         return "U"
+    if cat == "capacitor":
+        return "C"
+    if cat == "resistor":
+        return "R"
+    # Fallback: infer from package string
+    if any(k in pkg_lower for k in ["module", "lqfp", "qfn", "lga", "soc", "sot", "dip", "soic", "to-92"]):
+        return "U"
+    if "usb" in pkg_lower:
+        return "J"
+    return "U"
 
 
-def _footprint_str(pkg: str) -> str:
-    """Return a KiCad footprint reference string for the given package."""
+def _footprint_str(pkg: str, category: str = "") -> str:
+    """Return a KiCad footprint reference string for the given package.
+
+    The *category* (when supplied) disambiguates passives — e.g. an 0805
+    capacitor gets a capacitor footprint while an 0805 resistor gets a
+    resistor footprint.
+    """
+    cat = category.lower()
+    if cat == "led" and pkg in ("0402", "0603", "0805"):
+        return "LED_SMD:LED_0402_1005Metric"
+    if cat == "capacitor":
+        return {"0805": "Capacitor_SMD:C_0805_2012Metric",
+                "0402": "Capacitor_SMD:C_0402_0603Metric",
+                "1206": "Capacitor_SMD:C_1206_3216Metric"}.get(pkg, "Capacitor_SMD:C_0805_2012Metric")
+    if cat == "resistor":
+        return {"0805": "Resistor_SMD:R_0805_2012Metric",
+                "0402": "Resistor_SMD:R_0402_1005Metric",
+                "1206": "Resistor_SMD:R_1206_3216Metric"}.get(pkg, "Resistor_SMD:R_0805_2012Metric")
+
     FOOTPRINT_STR_MAP = {
-        "Module":    "RF_Module:ESP32-WROOM-32",
-        "LQFP-48":  "Package_QFP:LQFP-48_7x7mm_P0.5mm",
-        "SOIC-8":   "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
-        "SOT-223":  "Package_TO_SOT_SMD:SOT-223-3_TabPin2",
-        "USB-C-SMD":"Connector_USB:USB_C_Receptacle_Molex_2011640100",
+        "Module":      "RF_Module:ESP32-WROOM-32",
+        "QFN-48":      "Package_QFP:LQFP-48_7x7mm_P0.5mm",
+        "QFN-32":      "Package_QFP:LQFP-32_5x5mm_P0.5mm",
+        "LQFP-48":     "Package_QFP:LQFP-48_7x7mm_P0.5mm",
+        "SOIC-8":      "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+        "SOIC-14":     "Package_SO:SOIC-14_8.7x3.9mm_P1.27mm",
+        "SOIC-20":     "Package_SO:SOIC-20_12.6x5.3mm_P1.27mm",
+        "SOT-23-5":    "Package_TO_SOT_SMD:SOT-23-5_SC-70-5",
+        "SOT-223":     "Package_TO_SOT_SMD:SOT-223-3_TabPin2",
+        "LGA-8":       "Package_LGA:Bosch_LGA-8_2.5x2.5mm_P0.65mm_ClockwisePinNumbering",
+        "LGA-14":      "Package_LGA:LGA-14_3.0x3.0mm_P0.8mm",
+        "LGA-16":      "Package_LGA:LGA-16_3.0x3.0mm_P0.5mm",
+        "DIP-28":      "Package_DIP:DIP-28_W7.62mm_Socket_X2",
+        "TO-92":       "Package_TO_SOT_SMD:TO-92",
+        "USB-C-SMD":   "Connector_USB:USB_C_Receptacle_Molex_2011640100",
+        "SD_Card":     "Connector_Card:SD_Card_holder",
+        "Relay_Housing": "Relay:SRD-05VDC-SL-C",
+        "0805":      "Capacitor_SMD:C_0805_2012Metric",
+        "0402":      "Resistor_SMD:R_0402_1005Metric",
         "SMD":      "Capacitor_SMD:C_0805_2012Metric",
-        "0805":     "Capacitor_SMD:C_0805_2012Metric",
-        "0402":     "Resistor_SMD:R_0402_1005Metric",
     }
     return FOOTPRINT_STR_MAP.get(pkg, f"pcbai:{_safe_sym(pkg)}")
+
+
+def _enrich_ref_and_fp(comp: Dict[str, Any]) -> Dict[str, Any]:
+    """Enrich a BOM entry with a proper ref designator and footprint string."""
+    pkg = comp.get("package", "0805")
+    cat = comp.get("category", "")
+    comp["ref"] = _ref_prefix(pkg, cat) + comp.get("_seq", "1")
+    comp["footprint"] = _footprint_str(pkg, cat)
+    return comp
