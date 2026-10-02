@@ -1,0 +1,9 @@
+{
+  "keywords": [
+    "wifi",
+    "usb",
+    "ldo",
+    "esp32"
+  ],
+  "notes": "ESP32 WiFi board with USB-C and LDO"
+}

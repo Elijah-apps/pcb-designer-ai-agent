@@ -1,0 +1,72 @@
+[
+  {
+    "description": "ESP-01 WiFi module (ESP8266)",
+    "mpn": "ESP-01",
+    "package": "Module",
+    "pins": 8,
+    "voltage": "3.3V",
+    "category": "wifi",
+    "ref": "U1",
+    "footprint": "RF_Module:ESP32-WROOM-32"
+  },
+  {
+    "description": "USB Type-C 2.0 receptacle, 24-pin, Molex 2011640100",
+    "mpn": "USB4085-GF-A",
+    "package": "USB-C-SMD",
+    "pins": 24,
+    "voltage": "VBUS",
+    "category": "connector",
+    "ref": "J1",
+    "footprint": "Connector_USB:USB_C_Receptacle_Molex_2011640100"
+  },
+  {
+    "description": "AP2112K-3.3 3.3 V 600 mA LDO regulator",
+    "mpn": "AP2112K-3.3TRG1",
+    "package": "SOT-23-5",
+    "pins": 5,
+    "voltage": "3.3V",
+    "category": "ic",
+    "ref": "U2",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-5_SC-70-5"
+  },
+  {
+    "description": "ESP32-WROOM-32D dual-core 32-bit LX6 MCU, WiFi+BT, 4 MB flash",
+    "mpn": "ESP32-WROOM-32D",
+    "package": "Module",
+    "pins": 38,
+    "voltage": "3.3V",
+    "category": "mcu",
+    "ref": "U3",
+    "footprint": "RF_Module:ESP32-WROOM-32"
+  },
+  {
+    "description": "Capacitor 100 nF",
+    "mpn": "C08051206K5RACTA",
+    "package": "0805",
+    "pins": 2,
+    "voltage": "16V",
+    "category": "capacitor",
+    "ref": "C1",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric"
+  },
+  {
+    "description": "Capacitor 10 \u00b5F",
+    "mpn": "C08051E105KO06P",
+    "package": "0805",
+    "pins": 2,
+    "voltage": "16V",
+    "category": "capacitor",
+    "ref": "C2",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric"
+  },
+  {
+    "description": "Resistor 5.1 k\u03a9",
+    "mpn": "RC0805FR-075100E",
+    "package": "0805",
+    "pins": 2,
+    "voltage": "16V",
+    "category": "resistor",
+    "ref": "R1",
+    "footprint": "Resistor_SMD:R_0805_2012Metric"
+  }
+]

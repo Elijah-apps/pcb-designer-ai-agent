@@ -41,6 +41,27 @@ async function checkStatus() {
     setBadge("pcbnew-badge", "Error", "error");
     setBadge("provider-badge", "Error", "error");
   }
+
+  // Fetch provider metrics
+  try {
+    const metrics = await fetchJSON(`${API}/providers/metrics`);
+    if (metrics.providers && Object.keys(metrics.providers).length > 0) {
+      const grid = $("metrics-grid");
+      const items = Object.entries(metrics.providers).map(([name, s]) => `
+        <div class="metric-card">
+          <div class="metric-name">${name}</div>
+          <div class="metric-value">${s.calls}</div>
+          <div style="color:var(--text-muted);font-size:0.75rem">
+            ${s.successes}✓ ${s.errors}✗ · ${Math.round(s.success_rate*100)}% success
+          </div>
+        </div>
+      `);
+      grid.innerHTML = items.join("");
+      $("metrics-section").style.display = "block";
+    }
+  } catch (e) {
+    // Metrics not available (no tracker) — silently skip
+  }
 }
 
 // ── BOM rendering ─────────────────────────────────────────────────────────────
