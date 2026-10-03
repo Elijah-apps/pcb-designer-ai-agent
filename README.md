@@ -68,6 +68,20 @@ python3 test_rpc.py
 
 This will execute the agent pipeline end-to-end and output the generated BOM, Netlist, and Board files in JSON format!
 
+### 3. Web Dashboard
+
+Run the Flask web dashboard from the project root:
+
+```bash
+python3 run_web.py              # → http://localhost:5000
+# or: cd web && python3 app.py
+# or: make web
+```
+
+The dashboard provides a browser UI for BOM generation, full design pipeline, footprint generation,
+provider switching, and live metrics. See [RUN.md](RUN.md) for the complete command reference, or
+`web/README.md` for API endpoint documentation.
+
 ## Anna OS Integration
 
 While the agent is completely universal, it can also be deployed seamlessly to the Anna OS App Store.
