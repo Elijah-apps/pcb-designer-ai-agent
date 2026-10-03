@@ -1,4 +1,0 @@
-; pcbnew not available on this system.
-; Install KiCad 8 and re-run on a Local Agent.
-; Prompt was: STM32 sensor board with I2C IMU and LiPo charger
-; BOM had 7 components: MCP73831T-2ACI/OT, STM32F103C8T6, BME280, C08051206K5RACTA, C08051E105KO06P, RC0805FR-074701E, C08051206K5RACTA

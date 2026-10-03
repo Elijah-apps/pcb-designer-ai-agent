@@ -27,3 +27,6 @@ genkit-app/node_modules/
 
 # Coverage
 .coverage
+
+# Web app generated outputs
+web/outputs/

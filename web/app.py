@@ -31,15 +31,19 @@ from flask import (
 )
 
 # Ensure the pcbai package is importable regardless of CWD
-_project_root = Path(__file__).resolve().parents[1]  # …/pcb-designer/
+# This file lives at: <project_root>/web/app.py
+# The pcbai package lives at: <project_root>/anna-app/executas/pcb-designer/pcbai/
+_project_root = Path(__file__).resolve().parents[1]     # pcb-designer-ai-agent/
+_pcbai_root = _project_root / "anna-app" / "executas" / "pcb-designer"
+sys.path.insert(0, str(_pcbai_root))
 sys.path.insert(0, str(_project_root))
-os.environ.setdefault("PYTHONPATH", str(_project_root))
+os.environ.setdefault("PYTHONPATH", str(_pcbai_root) + os.pathsep + str(_project_root))
 
 app = Flask(__name__,
             template_folder="templates",
             static_folder="static")
 
-# Directory for user-generated output (cleaned on restart)
+# Directory for user-generated output
 OUTPUT_DIR = _project_root / "web" / "outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
