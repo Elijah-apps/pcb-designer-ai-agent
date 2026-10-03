@@ -93,3 +93,65 @@ export PCB_AI_LLM_PROVIDER=poolside   # or lmstudio, openai, ollama, openrouter,
 export OPENROUTER_API_KEY=your-key    # for poolside via OpenRouter
 PYTHONPATH=. python3 -m pcbai.pipeline.cli design "STM32 sensor board" --out build
 ```
+
+### Web Dashboard (v1.2.0 — moved to project root)
+```bash
+cd pcb-designer-ai-agent/       # project root
+python3 run_web.py              # → http://localhost:5000
+```
+
+The Flask app is now at `pcb-designer-ai-agent/web/` (moved from `anna-app/executas/pcb-designer/web/`).
+Path resolution: `parents[1]` → project root, then `anna-app/executas/pcb-designer/` for pcbai imports.
+All endpoints tested: `GET /`, `GET /api/status`, `GET /api/providers`, `POST /api/bom`, `POST /api/design`, `POST /api/resume/<id>`, `GET /api/task/<id>`.
+
+## Provider Context Manager (v1.2.0)
+
+### ProviderContext — easy switching + failover
+```python
+from pcbai.llm.context import ProviderContext
+
+# Switch providers for a single call
+with ProviderContext("openai", model="gpt-4o") as ctx:
+    r = ctx.provider.chat([{"role": "user", "content": "Analyze this schematic"}])
+
+# Fallback chain — auto-tries next on failure
+with ProviderContext("poolside", fallback=["lmstudio", "openai"]) as ctx:
+    result = ctx.complete("Design a buck converter")
+```
+
+### ProviderTracker — per-provider metrics
+```python
+from pcbai.llm.context import provider_session, provider_tracker
+
+# provider_session decorator tracks call count, success rate, latency
+@provider_session("openai")
+def my_call(ctx):
+    return ctx.provider.complete("Hello")
+
+# Get metrics
+metrics = provider_tracker.get_metrics()
+recommended = provider_tracker.get_recommended_provider()
+```
+
+### PipelineCheckpoint — save/resome pipeline steps
+```python
+from pcbai.llm.context import PipelineCheckpoint
+
+cp = PipelineCheckpoint("web/outputs/<task_id>/checkpoints")
+cp.save("bom", bom_data)
+cp.exists("bom")
+cp.list_steps()   # ["requirements", "bom"]
+data = cp.load("bom")  # Resume from saved state
+```
+
+### API: Resume with different provider
+```bash
+curl -X POST http://localhost:5000/api/resume/<task_id> \
+  -H "Content-Type: application/json" \
+  -d '{"provider": "lmstudio"}'
+```
+
+## Available Providers (7 total)
+`poolside` (default), `openrouter`, `openai`, `anthropic`, `gemini`, `lmstudio`, `ollama`
+
+Poolside uses OpenRouter under the hood (`poolside/laguna-s-2.1:free`). Falls back to local catalog when `OPENROUTER_API_KEY` not set.
