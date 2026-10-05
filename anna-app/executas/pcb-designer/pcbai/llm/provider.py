@@ -274,32 +274,80 @@ class AnthropicProvider(LLMProvider):
 # Gemini (Google)
 # ─────────────────────────────────────────────
 class GeminiProvider(LLMProvider):
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-flash"):
-        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
-        self.model = model
+    """Google Gemini (generativelanguage) provider.
 
-    def chat(self, messages: List[Dict], temperature: float = 0.2, max_tokens: int = 512, **kwargs) -> str:
-        if not self.api_key: raise RuntimeError("GEMINI_API_KEY not set")
-        # Format messages for Gemini API
+    Security: the API key is sent as the ``x-goog-api-key`` **header**, never as a
+    ``?key=`` query parameter. Query-string keys leak into proxy/CDN access logs, and
+    — worse — they end up embedded in ``requests`` exception strings, which this
+    project surfaces to HTTP clients via ``traceback.format_exc()`` in ``app.py``.
+    """
+
+    BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+    # Live-verified models for generateContent. Note: `gemini-2.5-flash` still appears
+    # in the ListModels endpoint but 404s for new users ("no longer available to new
+    # users"), so discovery via ListModels is NOT reliable — keep this list curated.
+    DEFAULT_MODELS = [
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+    ]
+
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        self.model = model or self.DEFAULT_MODELS[0]
+        self._models = [self.model] if model else list(self.DEFAULT_MODELS)
+
+    def _redact(self, text: str) -> str:
+        """Strip the API key from any text that may be surfaced to callers."""
+        if self.api_key and self.api_key in text:
+            text = text.replace(self.api_key, "***REDACTED***")
+        return text
+
+    def _chat_once(self, model_id: str, messages: List[Dict],
+                   temperature: float, max_tokens: int) -> str:
+        """Call one model; return content text. Raises on any failure."""
+        # Format messages for the Gemini API: system turns become a leading user
+        # message (Gemini has no `system` role in `contents`).
         contents = []
         for m in messages:
             role = "user" if m["role"] in ["user", "system"] else "model"
             contents.append({"role": role, "parts": [{"text": m["content"]}]})
-            
+
         payload = {
             "contents": contents,
             "generationConfig": {
                 "temperature": _get_temperature(temperature),
-                "maxOutputTokens": _get_max_tokens(max_tokens)
-            }
+                "maxOutputTokens": _get_max_tokens(max_tokens),
+            },
         }
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
-        r = requests.post(url, json=payload, timeout=60)
-        try:
-            r.raise_for_status()
-        except Exception as e:
-            raise RuntimeError(f"{e} | Response Body: {r.text}")
+        # Key goes in the header — never in the query string.
+        r = requests.post(
+            f"{self.BASE_URL}/{model_id}:generateContent",
+            headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
+            json=payload,
+            timeout=60,
+        )
+        if r.status_code != 200:
+            # Report status + body only. Including the request URL would leak the key.
+            raise RuntimeError(
+                f"Gemini HTTP {r.status_code} [{model_id}]: "
+                f"{self._redact(r.text)[:500]}"
+            )
         return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+    def chat(self, messages: List[Dict], temperature: float = 0.2, max_tokens: int = 512, **kwargs) -> str:
+        if not self.api_key:
+            raise RuntimeError("GEMINI_API_KEY not set")
+        last_error = ""
+        for model_id in self._models:
+            try:
+                return self._chat_once(model_id, messages, temperature, max_tokens)
+            except Exception as e:
+                last_error = self._redact(str(e))
+                print(f"    [gemini] Failed ({model_id}): {last_error[:200]}")
+        raise RuntimeError(f"All Gemini models failed or were rate-limited. Last error: {last_error}")
 
     def complete(self, prompt: str, **kwargs) -> str:
         return self.chat([{"role": "user", "content": prompt}], **kwargs)
@@ -347,6 +395,8 @@ def get_provider() -> LLMProvider:
     elif name == "anthropic" or name == "claude":
         return AnthropicProvider(model=os.getenv("PCB_AI_MODEL", "claude-3-5-sonnet-20240620"))
     elif name == "gemini":
-        return GeminiProvider(model=os.getenv("PCB_AI_MODEL", "gemini-1.5-flash"))
+        # PCB_AI_GEMINI_MODEL takes precedence; falls back to the provider default
+        # (gemini-3.8-flash) when unset. An explicit PCB_AI_MODEL pins a single model.
+        return GeminiProvider(model=os.getenv("PCB_AI_GEMINI_MODEL") or os.getenv("PCB_AI_MODEL"))
         
     return DummyProvider()

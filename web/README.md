@@ -11,11 +11,13 @@ python3 run_web.py
 # → opens at http://localhost:5000
 ```
 
-Or directly:
+Or directly — the Flask app lives at the project root as `app.py`:
 ```bash
-cd web
-PYTHONPATH=../anna-app/executas/pcb-designer:. python3 app.py
+python3 app.py
+python3 app.py --port 8080 --debug
 ```
+
+Full command reference: see [`RUN_WEBAPP.md`](../RUN_WEBAPP.md).
 
 ## API Endpoints
 
@@ -95,8 +97,9 @@ Returns per-provider: call count, success rate, average latency, recent errors.
 ```
 pcb-designer-ai-agent/
 ├── run_web.py                        # Quick-run script
+├── app.py                            # Flask application + API
+├── RUN_WEBAPP.md                     # All commands to run the webapp
 ├── web/
-│   ├── app.py                        # Flask application + API
 │   ├── templates/index.html          # Dashboard UI
 │   ├── static/style.css              # Dashboard styling
 │   ├── static/app.js                 # Frontend logic

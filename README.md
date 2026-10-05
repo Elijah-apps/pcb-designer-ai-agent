@@ -74,12 +74,13 @@ Run the Flask web dashboard from the project root:
 
 ```bash
 python3 run_web.py              # → http://localhost:5000
-# or: cd web && python3 app.py
+# or: python3 app.py            # Flask app lives at the project root
 # or: make web
 ```
 
 The dashboard provides a browser UI for BOM generation, full design pipeline, footprint generation,
-provider switching, and live metrics. See [RUN.md](RUN.md) for the complete command reference, or
+provider switching, and live metrics. See [RUN_WEBAPP.md](RUN_WEBAPP.md) for every webapp command,
+[RUN.md](RUN.md) for the complete command reference, or
 `web/README.md` for API endpoint documentation.
 
 ## Anna OS Integration

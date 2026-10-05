@@ -11,7 +11,7 @@ Provides a browser-based interface to the pcbai pipeline:
   GET  /api/download/<f> — download a generated artifact
   GET  /                — dashboard UI
 
-Run:  cd web && python3 app.py
+Run:  python3 app.py          (from the project root)
 """
 from __future__ import annotations
 
@@ -31,20 +31,32 @@ from flask import (
 )
 
 # Ensure the pcbai package is importable regardless of CWD
-# This file lives at: <project_root>/web/app.py
+# This file lives at: <project_root>/app.py
 # The pcbai package lives at: <project_root>/anna-app/executas/pcb-designer/pcbai/
-_project_root = Path(__file__).resolve().parents[1]     # pcb-designer-ai-agent/
+_project_root = Path(__file__).resolve().parent          # pcb-designer-ai-agent/
+_web_dir = _project_root / "web"                        # templates/static/env live here
 _pcbai_root = _project_root / "anna-app" / "executas" / "pcb-designer"
 sys.path.insert(0, str(_pcbai_root))
 sys.path.insert(0, str(_project_root))
 os.environ.setdefault("PYTHONPATH", str(_pcbai_root) + os.pathsep + str(_project_root))
 
+# Load web/.env (and a project-root .env) so API keys in web/.env are actually read.
+# MUST happen before pcbai.llm.provider is imported — it reads os.environ at import
+# time in the dataclass defaults. Real env vars always win over .env values.
+_ENV_LOADED = False
+try:
+    from dotenv import load_dotenv
+    _ENV_LOADED = load_dotenv(_project_root / ".env") or load_dotenv(_web_dir / ".env")
+except ImportError:
+    # python-dotenv is optional — fall back to shell-exported env vars only.
+    pass
+
 app = Flask(__name__,
-            template_folder="templates",
-            static_folder="static")
+            template_folder=str(_web_dir / "templates"),
+            static_folder=str(_web_dir / "static"))
 
 # Directory for user-generated output
-OUTPUT_DIR = _project_root / "web" / "outputs"
+OUTPUT_DIR = _web_dir / "outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # In-memory task registry (task_id → {"status", "result", "error", "log"})
@@ -111,6 +123,7 @@ def api_status():
         "llm_provider_factory": _HAS_PROVIDER,
         "default_provider": os.getenv("PCB_AI_LLM_PROVIDER", "poolside"),
         "output_dir": str(OUTPUT_DIR),
+        "env_file_loaded": _ENV_LOADED,
     })
 
 
@@ -193,13 +206,10 @@ def _pipeline_with_context(ctx: "ProviderContext", description: str,
     # Step 2: Generate BOM (uses env var set by ProviderContext, falls back to local catalog)
     log_fn("Generating BOM...")
     try:
-        bom = bg.generate_bom(req, provider=ctx.provider)
-    except TypeError:
-        # generate_bom doesn't accept provider kwarg — that's fine
         bom = bg.generate_bom(req)
-    if not bom:
-        log_fn("BOM empty — using local catalog fallback")
-        bom = bg.generate_bom(req)
+    except Exception as e:
+        log_fn(f"BOM generation raised ({e}) — retrying with local catalog")
+        bom = []
     if not bom:
         log_fn("BOM empty — using local catalog fallback")
         bom = bg.generate_bom(req)
@@ -605,5 +615,24 @@ def dashboard():
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    port = int(os.getenv("PCB_AI_PORT", "5000"))
-    app.run(host="0.0.0.0", port=port, debug=True, use_reloader=False)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="PCB Designer AI Agent — Web Dashboard")
+    parser.add_argument("--host", default=os.getenv("PCB_AI_HOST", "0.0.0.0"),
+                        help="Bind host (default: $PCB_AI_HOST or 0.0.0.0)")
+    parser.add_argument("--port", type=int,
+                        default=int(os.getenv("PCB_AI_PORT", "5000")),
+                        help="Port (default: $PCB_AI_PORT or 5000)")
+    parser.add_argument("--debug", action="store_true", help="Enable Flask debug mode")
+    args = parser.parse_args()
+
+    print("PCB Designer AI Agent — Web Dashboard")
+    print(f"  Project root: {_project_root}")
+    print(f"  pcbai path:   {_pcbai_root}")
+    print(f"  Templates:    {app.template_folder}")
+    print(f"  Static:       {app.static_folder}")
+    print(f"  Outputs:      {OUTPUT_DIR}")
+    print(f"  Provider:     {os.getenv('PCB_AI_LLM_PROVIDER', 'poolside')}")
+    print(f"\n  Running on:   http://localhost:{args.port}\n")
+
+    app.run(host=args.host, port=args.port, debug=args.debug, use_reloader=False)

@@ -1,7 +1,8 @@
 # PCB Designer AI Agent — Run Commands Reference
 
 All commands to run, test, and interact with the PCB Designer AI Agent.
-The Flask web app lives in `web/` at the **project root** (not inside `anna-app/executas/`).
+The Flask web app lives at the **project root** as `app.py` (templates, static
+assets and outputs stay in `web/`). Full command reference: [`RUN_WEBAPP.md`](RUN_WEBAPP.md).
 
 > **Prerequisites:** Python 3.10+, Flask 3.1+, pypdf installed. KiCad/pcbnew optional (placeholder PCB generated if missing). No LLM API key = local catalog fallback.
 
@@ -27,7 +28,7 @@ That's it. The app auto-resolves `pcbai` imports from `anna-app/executas/pcb-des
 | Method | Command | Description |
 |--------|---------|-------------|
 | Quick script | `python3 run_web.py` | From project root |
-| Direct | `cd web && python3 app.py` | From the web/ directory |
+| Direct | `python3 app.py` | From project root |
 | Makefile | `make web` | Shortcut (project root) |
 | Debug mode | `python3 run_web.py --debug` | Flask debug mode |
 | Custom port | `python3 run_web.py --port 8080` | Override port |
